@@ -3,7 +3,6 @@
 <head>
     <title>Aprmon领水</title>
     <style>
-        /* 专业级样式设计 */
         body {
             font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
             max-width: 1200px;
@@ -82,8 +81,6 @@
         .success { border-color: #10b981; }
         .error { border-color: #ef4444; }
         .retry { border-color: #f59e0b; }
-        
-        /* 新增监控样式 */
         .monitor-status {
             padding: 0.3rem 0.8rem;
             border-radius: 20px;
@@ -94,12 +91,11 @@
     </style>
 </head>
 <body>
-    <!-- 新增监控面板 -->
+    <!-- 监控面板 -->
     <div class="control-panel">
         <h3>🔔 余额监控</h3>
         <div style="display: flex; gap: 15px; align-items: center; margin-top: 1rem;">
-            <button onclick="monitor.toggle()" 
-                    style="background: #10b981; padding: 0.8rem 1.5rem;">
+            <button onclick="monitor.toggle()" style="background: #10b981; padding: 0.8rem 1.5rem;">
                 🕹️ 监控开关
             </button>
             <div style="display: flex; gap: 10px; align-items: center;">
@@ -111,10 +107,11 @@
             <source src="https://ting8.yymp3.com/new12/yidangnian/3.mp3" type="audio/mpeg">
         </audio>
     </div>
+
     <!-- 领水控制台 -->
     <div class="control-panel">
         <h2>🚰 领水控制系统</h2>
-        <textarea id="addresses" rows="8" placeholder="输入钱包地址 (每行一个)<功能列表依次为并发数/重试次数/重试间隔>"></textarea>
+        <textarea id="addresses" rows="8" placeholder="输入钱包地址 (每行一个)"></textarea>
         
         <div class="toolbar">
             <input type="number" id="concurrency" value="5" min="1" max="20" placeholder="并发数">
@@ -123,7 +120,6 @@
             <button onclick="startProcessing()">▶️ 开始启动</button>
         </div>
     </div>
-
 
     <!-- 状态追踪 -->
     <div class="status-panel">
@@ -138,14 +134,23 @@
     </div>
 
 <script>
-// ================= 原有领水系统 =================
+// ================= 完整UA功能领水系统 =================
 class FaucetSystem {
     constructor() {
         this.activeWorkers = new Set();
         this.statusMap = new Map();
+        this.uaPool = new Map();
     }
 
-    generateUA() {
+    generateUAPool(count) {
+        const pool = new Set();
+        while(pool.size < count) {
+            pool.add(this._generateUA());
+        }
+        return Array.from(pool);
+    }
+
+    _generateUA() {
         const systems = [
             'Windows NT 10.0; Win64; x64',
             'X11; Linux x86_64',
@@ -154,12 +159,14 @@ class FaucetSystem {
         ];
         
         const browserTemplates = [
-            `Chrome/${Math.floor(100 + Math.random()*20)}.0.0.0`,
-            `Firefox/${Math.floor(100 + Math.random()*20)}.0`,
-            `Safari/${Math.floor(15 + Math.random()*5)}.${Math.floor(Math.random()*3)}`
+            () => `Chrome/${100 + Math.floor(Math.random()*20)}.0.0.0`,
+            () => `Firefox/${100 + Math.floor(Math.random()*20)}.0`,
+            () => `Safari/${15 + Math.floor(Math.random()*5)}.${Math.floor(Math.random()*3)}`
         ];
 
-        return `Mozilla/5.0 (${systems[Math.floor(Math.random()*systems.length)]}) AppleWebKit/537.36 (KHTML, like Gecko) ${browserTemplates[Math.floor(Math.random()*browserTemplates.length)]}`;
+        const sys = systems[Math.floor(Math.random()*systems.length)];
+        const browser = browserTemplates[Math.floor(Math.random()*browserTemplates.length)]();
+        return `Mozilla/5.0 (${sys}) AppleWebKit/537.36 (KHTML, like Gecko) ${browser}`;
     }
 
     async claim(address, attempt = 0) {
@@ -168,7 +175,7 @@ class FaucetSystem {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
-                    'User-Agent': this.generateUA(),
+                    'User-Agent': this.uaPool.get(address),
                     'Origin': 'https://stake.apr.io',
                     'Referer': 'https://stake.apr.io/'
                 },
@@ -176,7 +183,6 @@ class FaucetSystem {
             });
 
             const data = await response.json();
-            
             if (data.claim_id) {
                 this.logSuccess(address, data.claim_id);
                 return true;
@@ -264,7 +270,7 @@ class FaucetSystem {
     }
 }
 
-// ================= 新增监控系统 =================
+// ================= 完整监控系统 =================
 class MonitorSystem {
     constructor() {
         this.isActive = false;
@@ -298,7 +304,7 @@ class MonitorSystem {
         try {
             const response = await fetch('https://faucet-api.apr.io/api/capacity', {
                 headers: { 
-                    'User-Agent': new FaucetSystem().generateUA(),
+                    'User-Agent': new FaucetSystem()._generateUA(),
                     'Referer': 'https://stake.apr.io/' 
                 }
             });
@@ -329,13 +335,19 @@ class MonitorSystem {
     }
 }
 
-// ================= 系统初始化 =================
+// ================= 初始化系统 =================
 const faucet = new FaucetSystem();
 const monitor = new MonitorSystem();
 
 function startProcessing() {
     const addresses = document.getElementById('addresses').value.split('\n').filter(a => a.trim());
     const concurrency = parseInt(document.getElementById('concurrency').value);
+
+    // 生成唯一UA池
+    const uniqueUAs = faucet.generateUAPool(addresses.length);
+    addresses.forEach((address, index) => {
+        faucet.uaPool.set(address, uniqueUAs[index]);
+    });
 
     const worker = async (queue) => {
         while(queue.length > 0) {
